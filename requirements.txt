@@ -1,0 +1,14 @@
+boto3
+boto3-stubs
+mypy
+mypy-boto3
+aws-lambda-powertools
+black
+
+# mypy_type_annotations
+mypy_boto3_servicecatalog
+mypy_boto3_cloudformation
+mypy_boto3_organizations
+mypy_boto3_sns
+mypy_boto3_sts
+# mypy_boto3_accounts
