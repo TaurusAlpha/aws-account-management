@@ -30,20 +30,6 @@ class AWS:
             response = task(*args)
             logger.info(f"Request status: {response}")
 
-    def get_instance_arn(self) -> list[str]:
-        sso_client = self.aws_client_factory.get_aws_client("sso-admin")
-        instance_arns = []
-
-        sso_response = sso_client.list_instances()
-
-        for instance in sso_response["Instances"]:
-            instance_arn = instance.get("InstanceArn", None)
-            if instance_arn is None:
-                raise ValueError
-            instance_arns.append(instance_arn)
-
-        return instance_arns
-
     def deregister_account(self, account_id: str) -> str:
         provisioned_products = []
         sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
