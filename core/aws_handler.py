@@ -1,12 +1,16 @@
-from typing import Any, Callable, Optional
+from __future__ import annotations
+
 import logging
 import os
 import time
 import uuid
-from core.authentication.aws_client_factory import IAWSClientFactory
-from core.schemas import SearchProvisionedProductsResponse
+from typing import Any, Callable, Optional
+
+from mypy_boto3_servicecatalog import ServiceCatalogClient
 from mypy_boto3_servicecatalog.type_defs import ProvisioningParameterTypeDef
 
+from core.authentication.aws_client_factory import IAWSClientFactory
+from core.schemas import SearchProvisionedProductsResponse
 
 logger = logging.getLogger()
 logging.basicConfig(format="%(asctime)s %(message)s")
@@ -34,8 +38,7 @@ class AWS:
 
     def __get_sc_products_for_account(self, account_id: str) -> list[str]:
         sc_product_ids = []
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
-
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.search_provisioned_products(
             AccessLevelFilter={"Key": "Account", "Value": "self"},
             Filters={"SearchQuery": [account_id]},
@@ -46,19 +49,22 @@ class AWS:
         except TypeError:
             return []
 
+
         for sc_provisioned_product in sc_response.ProvisionedProducts:
             if sc_provisioned_product.Status == "AVAILABLE":
                 sc_product_ids.append(sc_provisioned_product.Id)
+
 
         return sc_product_ids
 
     def deregister_account(self, account_id: str) -> str:
         provisioned_products = []
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         provisioned_products = self.__get_sc_products_for_account(account_id)
 
         if provisioned_products is None:
             return f"No provisioned products found for {account_id}"
+
 
         for provisioned_product in provisioned_products:
             record_id_response = sc_client.terminate_provisioned_product(  # type: ignore[call-arg]
@@ -74,10 +80,10 @@ class AWS:
                 in ["IN_PROGRESS", "IN_PROGRESS_IN_ERROR", "CREATED"],
             )
 
-        return f"Succesfully terminated ControlTower account {account_id} from provisioned Service Catalog ID: {provisioned_products}"
+        return f"Successfully terminated ControlTower account {account_id} from provisioned Service Catalog ID: {provisioned_products}"
 
     def get_service_catalog_product_id(self, product_name_keyword: str) -> str:
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.search_products_as_admin(
             Filters={"FullTextSearch": [product_name_keyword]}
         )
@@ -99,7 +105,7 @@ class AWS:
         return matching_products[0]
 
     def get_product_artifact_id(self, product_id: str) -> str:
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.describe_product_as_admin(Id=product_id)
 
         artifact_summary = response["ProvisioningArtifactSummaries"]
@@ -125,7 +131,7 @@ class AWS:
         self, artifact_and_product_id: tuple[str, str]
     ) -> Optional[str]:
         product_id, artifact_id = artifact_and_product_id
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.describe_provisioning_artifact(
             ProductId=product_id,
             ProvisioningArtifactId=artifact_id,
@@ -159,7 +165,7 @@ class AWS:
 
         Note: You need to replace 'product_id' and 'provisioning_artifact_id' with your actual values.
         """
-        sc_client = self.aws_client_factory.get_aws_client("servicecatalog")
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         account_request_id = str(uuid.uuid4())
 
         # Replace these with your actual IDs
