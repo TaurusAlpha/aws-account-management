@@ -1,16 +1,10 @@
-import boto3
+from mypy_boto3_sso_admin import SSOAdminClient
+
+from core.authentication.aws_client_factory import AWSClientFactory
 
 
-def get_instance_arn() -> list[str]:
-    sso_client = boto3.client("sso-admin")
-    instance_arns = []
-
+def get_instance_arns() -> list[str]:
+    sso_client = AWSClientFactory.get(SSOAdminClient)
     sso_response = sso_client.list_instances()
+    return list(map(lambda x: x["InstanceArn"], sso_response["Instances"]))
 
-    for instance in sso_response["Instances"]:
-        instance_arn = instance.get("InstanceArn", None)
-        if instance_arn is None:
-            raise ValueError
-        instance_arns.append(instance_arn)
-
-    return instance_arns

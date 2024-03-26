@@ -1,3 +1,3 @@
-from sso_admin_utils import get_instance_arn
+from core.utils.sso_admin_utils import get_instance_arns
 
-INTANCE_ARNS = get_instance_arn()
+INSTANCE_ARNS = get_instance_arns()
