@@ -21,22 +21,51 @@ class AWS:
     def __init__(self, aws_client_factory: IAWSClientFactory):
         self.aws_client_factory = aws_client_factory
 
-    def _block_until_complete(
+    def __block_until_complete(
         self,
         task: Callable,
         args: list[Any],
         condition: Callable[..., bool],
         timeout: float = 5,
     ) -> None:
+        """Executes a task repeatedly until a condition is met or a timeout occurs.
+
+        Args:
+            task: The callable task to execute.
+            args: A list of arguments to pass to the task.
+            condition: A callable that takes the task's response and returns a bool.
+            timeout: Time to wait between retries (in seconds).
+
+        Raises:
+            TimeoutError: If the operation times out.
+        """
+
+        start_time = time.time()
+        # TODO: Change to global/environment variable
+        total_timeout = 30.0
 
         response = task(*args)
+        logger.info(f"Initial request: {response}")
 
+        # TODO: Because AWS API is used, can we proceed after timeout reached?
         while condition(response):
+            if time.time() - start_time > total_timeout:
+                raise TimeoutError("Operation timed out.")
             time.sleep(timeout)
             response = task(*args)
-            logger.info(f"Request status: {response}")
+            logger.info(f"Running request: {response}")
 
     def __get_sc_products_for_account(self, account_id: str) -> list[str]:
+        """
+        Retrieves the list of Service Catalog product IDs for a given account.
+
+        Args:
+            account_id (str): The ID of the account.
+
+        Returns:
+            list[str]: A list of Service Catalog product IDs.
+
+        """
         sc_product_ids = []
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.search_provisioned_products(
@@ -58,6 +87,15 @@ class AWS:
         return sc_product_ids
 
     def deregister_account(self, account_id: str) -> str:
+        """
+        Deregisters an AWS account from the provisioned Service Catalog.
+
+        Args:
+            account_id (str): The ID of the AWS account to deregister.
+
+        Returns:
+            str: A message indicating the result of the deregistration process.
+        """
         provisioned_products = []
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         provisioned_products = self.__get_sc_products_for_account(account_id)
@@ -73,7 +111,7 @@ class AWS:
 
             record_id = record_id_response["RecordDetail"]["RecordId"]
 
-            self._block_until_complete(
+            self.__block_until_complete(
                 task=lambda x: sc_client.describe_record(Id=record_id)["RecordDetail"],
                 args=[],
                 condition=lambda x: x["Status"]
@@ -83,6 +121,19 @@ class AWS:
         return f"Successfully terminated ControlTower account {account_id} from provisioned Service Catalog ID: {provisioned_products}"
 
     def get_service_catalog_product_id(self, product_name_keyword: str) -> str:
+        """
+        Retrieves the ID of a service catalog product based on a keyword.
+
+        Args:
+            product_name_keyword (str): The keyword used to search for the product.
+
+        Returns:
+            str: The ID of the matching product.
+
+        Raises:
+            ValueError: If multiple products are found for the given keyword.
+        """
+
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.search_products_as_admin(
             Filters={"FullTextSearch": [product_name_keyword]}
@@ -105,6 +156,18 @@ class AWS:
         return matching_products[0]
 
     def get_product_artifact_id(self, product_id: str) -> str:
+        """
+        Retrieves the artifact ID for a given product ID.
+
+        Args:
+            product_id (str): The ID of the product.
+
+        Returns:
+            str: The artifact ID of the product.
+
+        Raises:
+            ValueError: If no active artifact is found for the product.
+        """
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.describe_product_as_admin(Id=product_id)
 
@@ -130,6 +193,15 @@ class AWS:
     def __get_artifact_id_if_current(
         self, artifact_and_product_id: tuple[str, str]
     ) -> Optional[str]:
+        """
+        Retrieves the artifact ID if it is currently active for the given product ID.
+
+        Args:
+            artifact_and_product_id: A tuple containing the artifact ID and product ID.
+
+        Returns:
+            The artifact ID if it is currently active, otherwise None.
+        """
         product_id, artifact_id = artifact_and_product_id
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         response = sc_client.describe_provisioning_artifact(
@@ -163,7 +235,9 @@ class AWS:
         - sso_user_first_name: The first name of the SSO user.
         - sso_user_last_name: The last name of the SSO user.
 
-        Note: You need to replace 'product_id' and 'provisioning_artifact_id' with your actual values.
+        Returns:
+        - response: The response from the provisioning of the new account.
+
         """
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         account_request_id = str(uuid.uuid4())
