@@ -1,22 +1,7 @@
-from enum import Enum
 from typing import Any, Mapping
 from pydantic import BaseModel, Field
 
-
-class OperationStatus(Enum):
-    FAIL = 0
-    SUCCESS = 1
-    WAITING = 2
-
-    @classmethod
-    def from_str(cls, value: str):
-        return cls.SUCCESS if value == "SUCCEEDED" else cls.FAIL
-
-class OperationType(Enum):
-    CREATE = 0
-    TERMINATE = 1
-    DELETE = 2
-    UPDATE = 3
+from core.commons.enums import OperationStatus, OperationType
 
 
 class ChangedResource(BaseModel):

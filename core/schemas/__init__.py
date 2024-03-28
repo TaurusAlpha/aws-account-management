@@ -1,4 +1,6 @@
 from core.schemas.provisioned_products_response import (
-    ProvisionedProduct, SearchProvisionedProductsResponse)
+    ProvisionedProduct,
+    SearchProvisionedProductsResponse,
+)
 
 __all__ = ["ProvisionedProduct", "SearchProvisionedProductsResponse"]
