@@ -9,9 +9,8 @@ from typing import TYPE_CHECKING, Optional, Protocol, Type
 import boto3
 from botocore.client import BaseClient
 
-if TYPE_CHECKING:
-    from mypy_boto3.literals import ServiceName
-    from mypy_boto3_sts.type_defs import CredentialsTypeDef
+from mypy_boto3.literals import ServiceName
+from mypy_boto3_sts.type_defs import CredentialsTypeDef
 
 
 # used to extract client name from a mypy_boto3 module name
