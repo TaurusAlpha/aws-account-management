@@ -1,59 +1,28 @@
 from __future__ import annotations
 
-import logging
-import os
-import time
 import uuid
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from mypy_boto3_servicecatalog import ServiceCatalogClient
-from mypy_boto3_servicecatalog.type_defs import ProvisioningParameterTypeDef
+from mypy_boto3_servicecatalog.type_defs import (
+    ProvisioningParameterTypeDef,
+    ProvisionProductOutputTypeDef,
+)
 
 from core.authentication.aws_client_factory import IAWSClientFactory
 from core.schemas import SearchProvisionedProductsResponse
-
-logger = logging.getLogger()
-logging.basicConfig(format="%(asctime)s %(message)s")
-logger.setLevel(logging.INFO if os.getenv("logger_level") else logging.DEBUG)
+from core.schemas.handler_response import (
+    AWSHandlerResponse,
+    OperationStatus,
+    OperationType,
+)
+from core.utils.utils import logger
+import core.utils.utils as utils
 
 
 class AWS:
     def __init__(self, aws_client_factory: IAWSClientFactory):
         self.aws_client_factory = aws_client_factory
-
-    def __block_until_complete(
-        self,
-        task: Callable,
-        args: list[Any],
-        condition: Callable[..., bool],
-        timeout: float = 5,
-    ) -> None:
-        """Executes a task repeatedly until a condition is met or a timeout occurs.
-
-        Args:
-            task: The callable task to execute.
-            args: A list of arguments to pass to the task.
-            condition: A callable that takes the task's response and returns a bool.
-            timeout: Time to wait between retries (in seconds).
-
-        Raises:
-            TimeoutError: If the operation times out.
-        """
-
-        start_time = time.time()
-        # TODO: Change to global/environment variable
-        total_timeout = 30.0
-
-        response = task(*args)
-        logger.info(f"Initial request: {response}")
-
-        # TODO: Because AWS API is used, can we proceed after timeout reached?
-        while condition(response):
-            if time.time() - start_time > total_timeout:
-                raise TimeoutError("Operation timed out.")
-            time.sleep(timeout)
-            response = task(*args)
-            logger.info(f"Running request: {response}")
 
     def __get_sc_products_for_account(self, account_id: str) -> list[str]:
         """
@@ -78,47 +47,11 @@ class AWS:
         except TypeError:
             return []
 
-
         for sc_provisioned_product in sc_response.ProvisionedProducts:
             if sc_provisioned_product.Status == "AVAILABLE":
                 sc_product_ids.append(sc_provisioned_product.Id)
 
-
         return sc_product_ids
-
-    def deregister_account(self, account_id: str) -> str:
-        """
-        Deregisters an AWS account from the provisioned Service Catalog.
-
-        Args:
-            account_id (str): The ID of the AWS account to deregister.
-
-        Returns:
-            str: A message indicating the result of the deregistration process.
-        """
-        provisioned_products = []
-        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        provisioned_products = self.__get_sc_products_for_account(account_id)
-
-        if provisioned_products is None:
-            return f"No provisioned products found for {account_id}"
-
-
-        for provisioned_product in provisioned_products:
-            record_id_response = sc_client.terminate_provisioned_product(  # type: ignore[call-arg]
-                ProvisionedProductId=provisioned_product, IgnoreErrors=True
-            )
-
-            record_id = record_id_response["RecordDetail"]["RecordId"]
-
-            self.__block_until_complete(
-                task=lambda x: sc_client.describe_record(Id=record_id)["RecordDetail"],
-                args=[],
-                condition=lambda x: x["Status"]
-                in ["IN_PROGRESS", "IN_PROGRESS_IN_ERROR", "CREATED"],
-            )
-
-        return f"Successfully terminated ControlTower account {account_id} from provisioned Service Catalog ID: {provisioned_products}"
 
     def get_service_catalog_product_id(self, product_name_keyword: str) -> str:
         """
@@ -197,7 +130,7 @@ class AWS:
         Retrieves the artifact ID if it is currently active for the given product ID.
 
         Args:
-            artifact_and_product_id: A tuple containing the artifact ID and product ID.
+            - artifact_and_product_id: A tuple containing the artifact ID and product ID.
 
         Returns:
             The artifact ID if it is currently active, otherwise None.
@@ -215,19 +148,54 @@ class AWS:
             else None
         )
 
+    def deregister_account(self, account_id: str) -> AWSHandlerResponse | str:
+        """
+        Deregisters an AWS account from the provisioned Service Catalog.
+
+        Args:
+            account_id (str): The ID of the AWS account to deregister.
+
+        Returns:
+            str: A message indicating the result of the deregistration process.
+        """
+        provisioned_products = []
+        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
+        provisioned_products = self.__get_sc_products_for_account(account_id)
+
+        if provisioned_products is None:
+            logger.info(f"No provisioned products found for {account_id}")
+            return
+
+        for provisioned_product in provisioned_products:
+            record_id_response = sc_client.terminate_provisioned_product(  # type: ignore[call-arg]
+                ProvisionedProductId=provisioned_product, IgnoreErrors=True
+            )
+
+            record_id = record_id_response["RecordDetail"]["RecordId"]
+
+            utils.block_until_complete(
+                task=sc_client.describe_record,
+                args=[],
+                kwargs={"Id": record_id},
+                condition=lambda x: x["RecordDetail"]["Status"]
+                in ["IN_PROGRESS", "IN_PROGRESS_IN_ERROR", "CREATED"],
+            )
+
+        return f"Successfully terminated ControlTower account {account_id} from provisioned Service Catalog ID: {provisioned_products}"
+
     def create_control_tower_account(
         self,
-        account_name,
-        account_email,
-        ou_name,
-        sso_user_email,
-        sso_user_first_name,
-        sso_user_last_name,
-    ):
+        account_name: str,
+        account_email: str,
+        ou_name: str,
+        sso_user_email: str,
+        sso_user_first_name: str,
+        sso_user_last_name: str,
+    ) -> ProvisionProductOutputTypeDef:
         """
         Create a new account in AWS Control Tower via AWS Service Catalog.
 
-        Parameters:
+        Args:
         - account_name: The name of the new account.
         - account_email: The email address associated with the new account.
         - ou_name: The name of the organizational unit to place the new account in.
@@ -242,8 +210,6 @@ class AWS:
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         account_request_id = str(uuid.uuid4())
 
-        # Replace these with your actual IDs
-        # TODO: Hardcoded values should be replaced with environment variables
         product_id = self.get_service_catalog_product_id(
             "AWS Control Tower Account Factory"
         )
@@ -268,4 +234,23 @@ class AWS:
             ProvisionToken=account_request_id,
         )
 
-        return response
+        record_id = response["RecordDetail"]["RecordId"]
+
+        task_response = utils.block_until_complete(
+            task=sc_client.describe_record,
+            args=[],
+            kwargs={"Id": record_id},
+            condition=lambda x: x["RecordDetail"]["Status"]
+            in ["IN_PROGRESS", "IN_PROGRESS_IN_ERROR", "CREATED"],
+        )
+
+        op_status = OperationStatus.from_str(task_response["RecordDetail"]["Status"])
+
+        return AWSHandlerResponse(
+            operation_command=self.create_control_tower_account.__name__,
+            operation_status=op_status,
+            operation_type=OperationType.CREATE,
+            service_name="AWS Control Tower",
+            response_payload=task_response,
+            message=f"Account creation request for {account_name} has been submitted.",
+        )

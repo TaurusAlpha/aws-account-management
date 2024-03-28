@@ -107,7 +107,7 @@ class AWSClientFactory:
         return aws_client
 
     @staticmethod
-    def __client_type_to_service_name[T](client_class: T) -> ServiceName: # type: ignore[valid-type, name-defined]
+    def __client_type_to_service_name[T](client_class: T) -> ServiceName:  # type: ignore[valid-type, name-defined]
         """
         Converts the client type to a service name.
 
@@ -118,7 +118,7 @@ class AWSClientFactory:
             ServiceName: The converted service name.
         """
         return (
-            ClientNamePattern.match(client_class.__module__) # type: ignore[union-attr]
+            ClientNamePattern.match(client_class.__module__)  # type: ignore[union-attr]
             .group(ClientNamePatternMatchGroup)
             .replace("_", "-")
         )
