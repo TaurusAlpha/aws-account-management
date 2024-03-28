@@ -2,3 +2,5 @@ black
 boto3-stubs
 mypy
 types-jmespath
+moto
+python-dotenv
