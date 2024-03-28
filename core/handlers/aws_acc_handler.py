@@ -1,154 +1,33 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from mypy_boto3_servicecatalog import ServiceCatalogClient
 from mypy_boto3_servicecatalog.type_defs import (
     ProvisioningParameterTypeDef,
     ProvisionProductOutputTypeDef,
 )
+from mypy_boto3_sso_admin import SSOAdminClient
 
 from core.authentication.aws_client_factory import IAWSClientFactory
-from core.schemas import SearchProvisionedProductsResponse
 from core.schemas.handler_response import (
     AWSHandlerResponse,
     OperationStatus,
     OperationType,
 )
-from core.utils.utils import logger
-import core.utils.utils as utils
+import core.utils.sc_utils as sc_utils
+import core.utils.sso_admin_utils as sso_admin_utils
+import core.utils as utils
+from core.utils import logger
 
 
 class AWS:
     def __init__(self, aws_client_factory: IAWSClientFactory):
         self.aws_client_factory = aws_client_factory
 
-    def __get_sc_products_for_account(self, account_id: str) -> list[str]:
-        """
-        Retrieves the list of Service Catalog product IDs for a given account.
-
-        Args:
-            account_id (str): The ID of the account.
-
-        Returns:
-            list[str]: A list of Service Catalog product IDs.
-
-        """
-        sc_product_ids = []
-        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        response = sc_client.search_provisioned_products(
-            AccessLevelFilter={"Key": "Account", "Value": "self"},
-            Filters={"SearchQuery": [account_id]},
-        )
-
-        try:
-            sc_response = SearchProvisionedProductsResponse(**response)  # type: ignore[call-arg]
-        except TypeError:
-            return []
-
-        for sc_provisioned_product in sc_response.ProvisionedProducts:
-            if sc_provisioned_product.Status == "AVAILABLE":
-                sc_product_ids.append(sc_provisioned_product.Id)
-
-        return sc_product_ids
-
-    def get_service_catalog_product_id(self, product_name_keyword: str) -> str:
-        """
-        Retrieves the ID of a service catalog product based on a keyword.
-
-        Args:
-            product_name_keyword (str): The keyword used to search for the product.
-
-        Returns:
-            str: The ID of the matching product.
-
-        Raises:
-            ValueError: If multiple products are found for the given keyword.
-        """
-
-        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        response = sc_client.search_products_as_admin(
-            Filters={"FullTextSearch": [product_name_keyword]}
-        )
-
-        matching_products = [
-            product.get("ProductViewSummary", {}).get("Id", "")
-            for product in response["ProductViewDetails"]
-            if product_name_keyword.lower()
-            in product.get("ProductViewSummary", {}).get("Name", "").lower()
-        ]
-
-        if not matching_products:
-            logger.warning(f"No products found for keyword: {product_name_keyword}")
-        if len(matching_products) != 1:
-            raise ValueError(
-                f"Multiple products found for keyword: {product_name_keyword}"
-            )
-
-        return matching_products[0]
-
-    def get_product_artifact_id(self, product_id: str) -> str:
-        """
-        Retrieves the artifact ID for a given product ID.
-
-        Args:
-            product_id (str): The ID of the product.
-
-        Returns:
-            str: The artifact ID of the product.
-
-        Raises:
-            ValueError: If no active artifact is found for the product.
-        """
-        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        response = sc_client.describe_product_as_admin(Id=product_id)
-
-        artifact_summary = response["ProvisioningArtifactSummaries"]
-
-        try:
-            return next(
-                (
-                    id
-                    for id in map(
-                        self.__get_artifact_id_if_current,
-                        (
-                            (product_id, artifact_id.get("Id", ""))
-                            for artifact_id in artifact_summary
-                        ),
-                    )
-                    if id
-                )
-            )
-        except StopIteration:
-            raise ValueError(f"No active artifact found for product: {product_id}")
-
-    def __get_artifact_id_if_current(
-        self, artifact_and_product_id: tuple[str, str]
-    ) -> Optional[str]:
-        """
-        Retrieves the artifact ID if it is currently active for the given product ID.
-
-        Args:
-            - artifact_and_product_id: A tuple containing the artifact ID and product ID.
-
-        Returns:
-            The artifact ID if it is currently active, otherwise None.
-        """
-        product_id, artifact_id = artifact_and_product_id
-        sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        response = sc_client.describe_provisioning_artifact(
-            ProductId=product_id,
-            ProvisioningArtifactId=artifact_id,
-        )
-
-        return (
-            artifact_id
-            if response["ProvisioningArtifactDetail"].get("Active", False)
-            else None
-        )
-
-    def deregister_account(self, account_id: str) -> AWSHandlerResponse | str:
+    def terminate_control_tower_account(
+        self, account_id: str
+    ) -> AWSHandlerResponse | str:
         """
         Deregisters an AWS account from the provisioned Service Catalog.
 
@@ -160,7 +39,7 @@ class AWS:
         """
         provisioned_products = []
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
-        provisioned_products = self.__get_sc_products_for_account(account_id)
+        provisioned_products = sc_utils.get_sc_products_for_account(account_id)
 
         if provisioned_products is None:
             logger.info(f"No provisioned products found for {account_id}")
@@ -210,10 +89,10 @@ class AWS:
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
         account_request_id = str(uuid.uuid4())
 
-        product_id = self.get_service_catalog_product_id(
+        product_id = sc_utils.get_service_catalog_product_id(
             "AWS Control Tower Account Factory"
         )
-        provisioning_artifact_id = self.get_product_artifact_id(product_id)
+        provisioning_artifact_id = sc_utils.get_product_artifact_id(product_id)
 
         # Provisioning parameters for the account creation
         provisioning_parameters: list[ProvisioningParameterTypeDef] = [
@@ -254,3 +133,68 @@ class AWS:
             response_payload=task_response,
             message=f"Account creation request for {account_name} has been submitted.",
         )
+
+    def add_account_to_ps(self):
+        pass
+
+    def remove_account_from_ps(self, account_id: str) -> list[str]:
+        account_id = account_id
+        sso_client = self.aws_client_factory.get(SSOAdminClient)
+        ps_list = []
+
+        for instance_arn in utils.INSTANCE_ARNS:
+            paginator = sso_client.get_paginator(
+                "list_permission_sets_provisioned_to_account"
+            )
+            for ps_iterator in paginator.paginate(
+                InstanceArn=instance_arn,
+                AccountId=account_id,
+            ):
+                for ps in ps_iterator["PermissionSets"]:
+                    ps_name = sso_client.describe_permission_set(
+                        InstanceArn=instance_arn, PermissionSetArn=ps
+                    )["PermissionSet"]["Name"]
+                    logger.info(
+                        f"Deleting account {account_id} from {ps_name} permission set"
+                    )
+                    principal_details = sso_admin_utils.get_ps_principal_details(
+                        account_id, instance_arn, ps
+                    )
+                    payload = {
+                        "InstanceArn": instance_arn,
+                        "TargetId": account_id,
+                        "TargetType": "AWS_ACCOUNT",
+                        "PermissionSetArn": ps,
+                        "PrincipalType": principal_details.principal_type,
+                        "PrincipalId": principal_details.principal_id,
+                    }
+                    ps_delete_status = sso_client.delete_account_assignment(**payload)[
+                        "AccountAssignmentDeletionStatus"
+                    ]
+                    logger.info(
+                        f"Deletion status {ps_delete_status['Status']} for {ps} permission set"
+                    )
+
+                    ps_delete_status = utils.block_until_complete(
+                        task=sso_client.describe_account_assignment_deletion_status,
+                        args=[],
+                        kwargs={
+                            "InstanceArn": instance_arn,
+                            "AccountAssignmentDeletionRequestId": ps_delete_status[
+                                "RequestId"
+                            ],
+                        },
+                        condition=lambda x: x["AccountAssignmentDeletionStatus"][
+                            "Status"
+                        ]
+                        in ["IN_PROGRESS"],
+                    )
+
+                    if ps_delete_status["Status"] == "FAILED":
+                        logger.info(
+                            f"Delete failed for {ps_name}. Fail status message: {ps_delete_status['FailureReason']}"
+                        )
+                    ps_list.append(ps_name)
+
+        logger.info(f"Permission sets deleted: {ps_list}")
+        return ps_list
