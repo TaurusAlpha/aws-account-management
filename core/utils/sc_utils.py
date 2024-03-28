@@ -7,6 +7,7 @@ from core.schemas import SearchProvisionedProductsResponse
 from core.utils import logger
 
 
+# TODO: Review function code
 def get_sc_products_for_account(account_id: str) -> list[str]:
     """
     Retrieves the list of Service Catalog product IDs for a given account.

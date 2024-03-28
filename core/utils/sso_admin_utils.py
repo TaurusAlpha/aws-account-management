@@ -5,6 +5,9 @@ from mypy_boto3_sso_admin import SSOAdminClient
 from core.authentication.aws_client_factory import AWSClientFactory
 
 
+PrincipalDetails = namedtuple("PrincipalDetails", ["principal_type", "principal_id"])
+
+
 def get_instance_arns() -> list[str]:
     """
     Retrieves the ARNs (Amazon Resource Names) of all SSO instances.
@@ -38,9 +41,6 @@ def get_ps_list_for_account(instance_arn, account_id) -> list[str]:
 
 def provision_ps_for_account(self):
     pass
-
-
-PrincipalDetails = namedtuple("PrincipalDetails", ["principal_type", "principal_id"])
 
 
 def get_ps_principal_details(

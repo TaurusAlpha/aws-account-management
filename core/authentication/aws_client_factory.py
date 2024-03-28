@@ -19,6 +19,11 @@ ClientNamePatternMatchGroup = 1
 
 
 class IAWSClientFactory(Protocol):
+    """
+    Interface for AWS client factory.
+
+    This interface defines the contract for creating instances of AWS clients.
+    """
 
     @classmethod
     def get[
@@ -41,13 +46,17 @@ class IAWSClientFactory(Protocol):
             Only works in python > 3.12.
             This will provide proper typing to the user regardless of boto3 vscode extension.
 
-            Downside:
-                This requires the user to create clients using mypy_boto3 types
+        Downside:
+            This requires the user to create clients using mypy_boto3 types
         """
         ...
 
 
 class AWSClientFactory:
+    """
+    Factory class for creating AWS client instances.
+    """
+
     clients: dict[str, BaseClient] = {}
 
     @classmethod
