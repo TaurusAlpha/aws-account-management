@@ -1,6 +1,4 @@
 from collections import namedtuple
-from typing import Optional
-from venv import logger
 
 from mypy_boto3_identitystore import IdentityStoreClient
 from mypy_boto3_sso_admin import SSOAdminClient
