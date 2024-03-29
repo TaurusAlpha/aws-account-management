@@ -154,26 +154,14 @@ class AWS:
             None
 
         """
-        instance_data = sso_admin_utils.get_iam_sso_instance_data()
+        sso_client = self.aws_client_factory.get(SSOAdminClient)
+        ps_data = sso_admin_utils.get_ps_details_for_name(
+            account_id, ps_name, group_name
+        )
+        if ps_data is None:
+            return {}
 
-        for _, instance_arn in instance_data:
-            ps_data = sso_admin_utils.get_ps_arn_for_name(ps_name)
-            if ps_data is None:
-                logger.info(f"Permission set {ps_name} not found in instance")
-                return {}
-            group_id = sso_admin_utils.get_group_id_by_name(group_name)
-            if group_id is None:
-                logger.info(f"Group {group_name} not found in instance")
-                return {}
-            ps_payload = PSConfigPayload(
-                InstanceArn=instance_arn,
-                TargetId=account_id,
-                PermissionSetArn=ps_data["PermissionSetArn"],
-                PrincipalType="GROUP",
-                PrincipalId=group_id,
-            )
-
-            sso_client = self.aws_client_factory.get(SSOAdminClient)
+        for _, ps_payload in ps_data.items():
             ps_response = sso_client.create_account_assignment(**ps_payload)[
                 "AccountAssignmentCreationStatus"
             ]

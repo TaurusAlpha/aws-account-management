@@ -1,10 +1,12 @@
 from collections import namedtuple
+from typing import Generator
 
 from mypy_boto3_identitystore import IdentityStoreClient
 from mypy_boto3_sso_admin import SSOAdminClient
 
 from core.authentication.aws_client_factory import AWSClientFactory
 from core.schemas.ps_requests import PSConfigPayload
+from core.utils import logger
 
 PrincipalDetails = namedtuple("PrincipalDetails", ["principal_type", "principal_id"])
 IAMSSOInstance = namedtuple("IAMSSOInstance", ["identity_store_id", "instance_arn"])
@@ -54,6 +56,47 @@ def get_ps_details_for_account(account_id: str) -> dict[str, PSConfigPayload]:
             )
 
     return ps_data
+
+
+def get_ps_details_for_name(
+    account_id: str, ps_name: str, group_name: str
+) -> dict[str, PSConfigPayload]:
+    """
+    Retrieves the permission set details for a given account ID, permission set name, and group name.
+
+    Args:
+        account_id (str): The ID of the AWS account.
+        ps_name (str): The name of the permission set.
+        group_name (str): The name of the group.
+
+    Returns:
+        dict[str, PSConfigPayload]: A dictionary containing the permission set details.
+
+    Raises:
+        None
+
+    """
+    instance_data = get_iam_sso_instance_data()
+
+    ps_data_payload = {}
+    for identity_id, instance_arn in instance_data:
+        ps_data = get_ps_arn_for_name(ps_name)
+        if ps_data is None:
+            logger.info(
+                f"Permission set {ps_name} not found in instance {instance_arn}"
+            )
+        group_id = get_group_id_by_name(group_name)
+        if group_id is None:
+            logger.info(f"Group {group_name} not found in identity {identity_id}")
+        if ps_data and group_id:
+            ps_data_payload[ps_name] = PSConfigPayload(
+                InstanceArn=instance_arn,
+                TargetId=account_id,
+                PermissionSetArn=ps_data["PermissionSetArn"],
+                PrincipalType="GROUP",
+                PrincipalId=group_id,
+            )
+    return ps_data_payload
 
 
 def get_ps_name_arn_for_account(instance_arn, account_id) -> dict[str, str]:

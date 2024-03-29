@@ -1,10 +1,7 @@
-from core.utils.sso_admin_utils import get_instance_arns
-
 import logging
 import os
 import time
 from typing import Any, Callable, Mapping
-
 
 # INSTANCE_ARNS = get_instance_arns()
 
