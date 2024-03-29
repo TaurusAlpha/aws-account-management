@@ -6,7 +6,7 @@ import time
 from typing import Any, Callable, Mapping
 
 
-INSTANCE_ARNS = get_instance_arns()
+# INSTANCE_ARNS = get_instance_arns()
 
 logger = logging.getLogger()
 logging.basicConfig(format="%(asctime)s %(message)s")
