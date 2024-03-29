@@ -8,3 +8,4 @@ mypy_boto3_cloudformation
 mypy_boto3_organizations
 mypy_boto3_sns
 mypy_boto3_sts
+mypy_boto3_identitystore
