@@ -136,15 +136,76 @@ class AWS:
             message=f"Account creation request for {account_name} has been submitted.",
         )
 
-    def add_account_to_ps(self):
-        pass
+    def add_account_to_ps(
+        self, account_id: str, ps_name: str, group_name: str
+    ) -> dict[str, PSConfigPayload]:
+        """
+        Adds an account to a permission set in the IAM SSO instance.
+
+        Args:
+            account_id (str): The ID of the account to be added.
+            ps_name (str): The name of the permission set.
+            group_name (str): The name of the group.
+
+        Returns:
+            dict[str, PSConfigPayload]: A dictionary containing permission set name and the created permission set configuration payload.
+
+        Raises:
+            None
+
+        """
+        instance_data = sso_admin_utils.get_iam_sso_instance_data()
+
+        for _, instance_arn in instance_data:
+            ps_data = sso_admin_utils.get_ps_arn_for_name(ps_name)
+            if ps_data is None:
+                logger.info(f"Permission set {ps_name} not found in instance")
+                return {}
+            group_id = sso_admin_utils.get_group_id_by_name(group_name)
+            if group_id is None:
+                logger.info(f"Group {group_name} not found in instance")
+                return {}
+            ps_payload = PSConfigPayload(
+                InstanceArn=instance_arn,
+                TargetId=account_id,
+                PermissionSetArn=ps_data["PermissionSetArn"],
+                PrincipalType="GROUP",
+                PrincipalId=group_id,
+            )
+
+            sso_client = self.aws_client_factory.get(SSOAdminClient)
+            ps_response = sso_client.create_account_assignment(**ps_payload)[
+                "AccountAssignmentCreationStatus"
+            ]
+            logger.info(
+                f"Creation status {ps_response['Status']} for {ps_name} permission set"
+            )
+
+            ps_create_status = utils.block_until_complete(
+                task=sso_client.describe_account_assignment_creation_status,
+                args=[],
+                kwargs={
+                    "InstanceArn": ps_payload.InstanceArn,
+                    "AccountAssignmentCreationRequestId": ps_response["RequestId"],
+                },
+                condition=lambda x: x["AccountAssignmentCreationStatus"]["Status"]
+                in ["IN_PROGRESS"],
+            )
+            if ps_create_status["Status"] == "FAILED":
+                logger.info(
+                    f"Create failed for {ps_name}. Fail status message: {ps_create_status['FailureReason']}"
+                )
+
+            ps_create_data = {ps_name: ps_payload}
+
+        return ps_create_data
 
     def remove_account_from_ps(self, account_id: str) -> dict[str, PSConfigPayload]:
         account_id = account_id
         sso_client = self.aws_client_factory.get(SSOAdminClient)
-        ps_list = sso_admin_utils.get_ps_list_for_account(account_id)
+        ps_list_payload = sso_admin_utils.get_ps_details_for_account(account_id)
 
-        for ps_name, ps_payload in ps_list.items():
+        for ps_name, ps_payload in ps_list_payload.items():
             ps_delete_status = sso_client.delete_account_assignment(**ps_payload)[
                 "AccountAssignmentDeletionStatus"
             ]
@@ -168,5 +229,5 @@ class AWS:
                     f"Delete failed for {ps_name}. Fail status message: {ps_delete_status['FailureReason']}"
                 )
 
-        logger.info(f"Permission sets deleted: {json.dumps(ps_list, indent=2)}")
-        return ps_list
+        logger.info(f"Permission sets deleted: {json.dumps(ps_list_payload, indent=2)}")
+        return ps_list_payload
