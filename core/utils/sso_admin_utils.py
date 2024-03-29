@@ -1,4 +1,5 @@
 from collections import namedtuple
+from typing import Mapping, Optional
 
 from mypy_boto3_identitystore import IdentityStoreClient
 from mypy_boto3_sso_admin import SSOAdminClient
@@ -20,14 +21,12 @@ def get_iam_sso_instance_data() -> list[IAMSSOInstance]:
     """
     sso_response = AWSClientFactory.get(SSOAdminClient).list_instances()
 
-    return list(
-        IAMSSOInstance(
-            next(sso_response)["IdentityStoreId"], next(sso_response)["InstanceArn"]
-        )
-    )
+    return [
+        IAMSSOInstance(instance["IdentityStoreId"], instance["InstanceArn"]) for instance in sso_response["Instances"]
+    ]
 
 
-def get_ps_details_for_account(account_id: str) -> dict[str, PSConfigPayload]:
+def get_ps_details_for_account(account_id: str) -> Mapping[str, PSConfigPayload]:
     """
     Retrieves a dictionary of permission sets (PS) for a given account.
 
@@ -35,7 +34,7 @@ def get_ps_details_for_account(account_id: str) -> dict[str, PSConfigPayload]:
         account_id (str): The ID of the account.
 
     Returns:
-        dict[str, PSConfigPayload]: A dictionary where the keys are the PS names and the values are PSConfigPayload objects.
+        Mapping[str, PSConfigPayload]: A dictionary where the keys are the PS names and the values are PSConfigPayload objects.
 
     """
     ps_data = {}
@@ -56,10 +55,9 @@ def get_ps_details_for_account(account_id: str) -> dict[str, PSConfigPayload]:
 
     return ps_data
 
-
 def get_ps_details_for_name(
     account_id: str, ps_name: str, group_name: str
-) -> dict[str, PSConfigPayload]:
+) -> list[PSConfigPayload]:
     """
     Retrieves the permission set details for a given account ID, permission set name, and group name.
 
@@ -69,36 +67,35 @@ def get_ps_details_for_name(
         group_name (str): The name of the group.
 
     Returns:
-        dict[str, PSConfigPayload]: A dictionary containing the permission set details.
-
-    Raises:
-        None
-
+        Mapping[str, PSConfigPayload]: A dictionary containing the permission set details.
     """
     instance_data = get_iam_sso_instance_data()
 
-    ps_data_payload = {}
+    ps_data_payload = []
+    
     for identity_id, instance_arn in instance_data:
-        ps_data = get_ps_arn_for_name(ps_name)
-        if ps_data is None:
+        ps_arn = get_ps_arn_for_name(ps_name, instance_arn)
+        if ps_arn is None:
             logger.info(
                 f"Permission set {ps_name} not found in instance {instance_arn}"
             )
-        group_id = get_group_id_by_name(group_name)
+            continue
+        group_id = get_group_id_by_name(group_name, identity_id)
         if group_id is None:
             logger.info(f"Group {group_name} not found in identity {identity_id}")
-        if ps_data and group_id:
-            ps_data_payload[ps_name] = PSConfigPayload(
-                InstanceArn=instance_arn,
-                TargetId=account_id,
-                PermissionSetArn=ps_data["PermissionSetArn"],
-                PrincipalType="GROUP",
-                PrincipalId=group_id,
-            )
+            continue
+        
+        ps_data_payload.append(PSConfigPayload(
+            InstanceArn=instance_arn,
+            TargetId=account_id,
+            PermissionSetArn=ps_arn,
+            PrincipalType="GROUP",
+            PrincipalId=group_id,
+        ))
     return ps_data_payload
 
 
-def get_ps_name_arn_for_account(instance_arn, account_id) -> dict[str, str]:
+def get_ps_name_arn_for_account(instance_arn, account_id) -> Mapping[str, str]:
     """
     Retrieves the list of permission sets provisioned to an AWS account.
 
@@ -107,19 +104,17 @@ def get_ps_name_arn_for_account(instance_arn, account_id) -> dict[str, str]:
         account_id (str): The ID of the AWS account.
 
     Returns:
-        dict[str, str]: A dictionary mapping permission set names to their ARNs.
+        Mapping[str, str]: A dictionary mapping permission set names to their ARNs.
     """
     sso_client = AWSClientFactory.get(SSOAdminClient)
     ps_list = sso_client.list_permission_sets_provisioned_to_account(
         InstanceArn=instance_arn, AccountId=account_id
     )["PermissionSets"]
 
-    # TODO: ask Dude about ps_arn handling in comprehension
-    ps_list = {get_ps_name(instance_arn, ps_arn): ps_arn for ps_arn in ps_list}
-    return ps_list
+    return {get_ps_name(instance_arn, ps_arn): ps_arn for ps_arn in ps_list}
 
 
-def get_ps_arn_for_name(ps_name: str) -> dict[str, str]:
+def get_ps_arn_for_name(ps_name: str, instance_arn: str) -> Optional[str]:
     """
     Retrieves the ARN (Amazon Resource Name) for a given PS (Permission Set) name.
 
@@ -127,22 +122,21 @@ def get_ps_arn_for_name(ps_name: str) -> dict[str, str]:
         ps_name (str): The name of the PS to retrieve the ARN for.
 
     Returns:
-        dict[str, str]: A dictionary containing the ARN of the PS, with the PS name as the key.
+        Mapping[str, str]: A dictionary containing the ARN of the PS, with the PS name as the key.
 
     """
-    instance_data = get_iam_sso_instance_data()
-    for _, instance_arn in instance_data:
-        ps_list = get_full_ps_list_for_instance(instance_arn)
-        ps_name_arn = find_first_matching_ps_name(ps_list, instance_arn, ps_name)
-        if ps_name_arn:
-            return ps_name_arn
+    ps_list = get_full_ps_list_for_instance(instance_arn)
+    ps_arn = find_first_matching_ps_name(ps_list, instance_arn, ps_name)
+    if ps_arn:
+        return ps_arn
 
-    return {}
+    return None
 
 
+# TODO: refactor to a generic form
 def find_first_matching_ps_name(
     ps_list: list[str], instance_arn: str, ps_name: str
-) -> dict[str, str]:
+) -> Optional[str]:
     """
     Finds the first matching PS name in the given list of PS ARNs.
 
@@ -158,8 +152,8 @@ def find_first_matching_ps_name(
     for ps_arn in ps_list:
         full_ps_name = get_ps_name(instance_arn, ps_arn)
         if ps_name in full_ps_name:
-            return {full_ps_name: ps_arn}
-    return {}
+            return ps_arn
+    return None
 
 
 def get_full_ps_list_for_instance(instance_arn: str) -> list[str]:
@@ -177,7 +171,7 @@ def get_full_ps_list_for_instance(instance_arn: str) -> list[str]:
     )["PermissionSets"]
 
 
-def get_group_id_by_name(group_name: str) -> str:
+def get_group_id_by_name(group_name: str, identity_id) -> Optional[str]:
     """
     Retrieves the ID of a group by its name.
 
@@ -188,16 +182,14 @@ def get_group_id_by_name(group_name: str) -> str:
         str: The ID of the group.
     """
     sso_client = AWSClientFactory.get(IdentityStoreClient)
-    instance_data = get_iam_sso_instance_data()
-    for identity_id, _ in instance_data:
-        group_id = sso_client.list_groups(
-            IdentityStoreId=identity_id,
-            Filters=[{"AttributePath": "DisplayName", "AttributeValue": group_name}],
-        )
-        if group_id:
-            return group_id
+    group_response = sso_client.list_groups(
+        IdentityStoreId=identity_id,
+        Filters=[{"AttributePath": "DisplayName", "AttributeValue": group_name}],
+    )
+    if group_response["Groups"]:
+        return next(group_response["Groups"])["GroupId"]
 
-    return ""
+    return None
 
 
 def get_ps_name(instance_arn, ps_arn) -> str:
@@ -242,8 +234,5 @@ def get_ps_principal_details(
     sso_response = sso_admin_client.list_account_assignments(
         account_id, instance_arn, ps_arn
     )
-
-    return PrincipalDetails(
-        next(sso_response["AccountAssignments"])["PrincipalType"],
-        next(sso_response["AccountAssignments"])["PrincipalId"],
-    )
+    account_assignment = next(sso_response["AccountAssignments"])
+    return PrincipalDetails(account_assignment["PrincipalType"], account_assignment["PrincipalId"])

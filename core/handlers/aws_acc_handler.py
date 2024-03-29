@@ -2,23 +2,19 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Mapping
 
 from mypy_boto3_servicecatalog import ServiceCatalogClient
-from mypy_boto3_servicecatalog.type_defs import (
-    ProvisioningParameterTypeDef,
-    ProvisionProductOutputTypeDef,
-)
+from mypy_boto3_servicecatalog.type_defs import (ProvisioningParameterTypeDef,
+                                                 ProvisionProductOutputTypeDef)
 from mypy_boto3_sso_admin import SSOAdminClient
 
 import core.utils as utils
 import core.utils.sc_utils as sc_utils
 import core.utils.sso_admin_utils as sso_admin_utils
 from core.authentication.aws_client_factory import IAWSClientFactory
-from core.schemas.handler_response import (
-    AWSHandlerResponse,
-    OperationStatus,
-    OperationType,
-)
+from core.schemas.handler_response import (AWSHandlerResponse, OperationStatus,
+                                           OperationType)
 from core.schemas.ps_requests import PSConfigPayload
 from core.utils import logger
 
@@ -31,13 +27,13 @@ class AWS:
         self, account_id: str
     ) -> AWSHandlerResponse | str:
         """
-        Deregisters an AWS account from the provisioned Service Catalog.
+        Deregister an AWS account from the provisioned Service Catalog.
 
         Args:
             account_id (str): The ID of the AWS account to deregister.
 
         Returns:
-            str: A message indicating the result of the deregistration process.
+            str: A message indicating the result of the de-registration process.
         """
         provisioned_products = []
         sc_client = self.aws_client_factory.get(ServiceCatalogClient)
@@ -136,6 +132,7 @@ class AWS:
             message=f"Account creation request for {account_name} has been submitted.",
         )
 
+    # TODO: Rewrite return value
     def add_account_to_ps(
         self, account_id: str, ps_name: str, group_name: str
     ) -> dict[str, PSConfigPayload]:
@@ -161,7 +158,7 @@ class AWS:
         if ps_data is None:
             return {}
 
-        for _, ps_payload in ps_data.items():
+        for ps_payload in ps_data:
             ps_response = sso_client.create_account_assignment(**ps_payload)[
                 "AccountAssignmentCreationStatus"
             ]
@@ -188,10 +185,11 @@ class AWS:
 
         return ps_create_data
 
-    def remove_account_from_ps(self, account_id: str) -> dict[str, PSConfigPayload]:
-        account_id = account_id
+    def remove_account_from_ps(self, account_id: str) -> Mapping[str, PSConfigPayload]:
         sso_client = self.aws_client_factory.get(SSOAdminClient)
         ps_list_payload = sso_admin_utils.get_ps_details_for_account(account_id)
+        if ps_list_payload is None:
+            return {}
 
         for ps_name, ps_payload in ps_list_payload.items():
             ps_delete_status = sso_client.delete_account_assignment(**ps_payload)[
